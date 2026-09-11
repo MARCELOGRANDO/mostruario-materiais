@@ -1,0 +1,551 @@
+<style>
+h2.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.controls{display:flex;gap:12px;align-items:center;padding:1rem 0 0.75rem;flex-wrap:wrap}
+.controls input{flex:1;min-width:160px}
+.controls select{min-width:130px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;padding-bottom:1.5rem}
+.card{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;cursor:pointer;transition:transform .15s}
+.card:hover{transform:scale(1.02)}
+.swatch{height:72px;width:100%}
+.info{padding:8px 10px;background:var(--color-background-primary)}
+.name{font-size:13px;font-weight:500;color:var(--color-text-primary);margin:0 0 2px}
+.id{font-size:11px;color:var(--color-text-secondary);margin:0 0 4px;word-break:break-all}
+.hex{font-size:11px;font-family:var(--font-mono);color:var(--color-text-secondary);margin:0}
+.count{font-size:13px;color:var(--color-text-secondary);padding:0 0 0.5rem}
+.copy-toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:var(--color-text-primary);color:var(--color-background-primary);padding:6px 16px;border-radius:var(--border-radius-md);font-size:13px;pointer-events:none;opacity:0;transition:opacity .2s}
+.controls button{font-size:13px;padding:8px 12px;border-radius:var(--border-radius-md,6px);border:1px solid var(--color-border-tertiary);background:var(--color-background-primary);color:var(--color-text-primary);cursor:pointer;white-space:nowrap}
+.controls button:hover{background:var(--color-background-secondary,rgba(0,0,0,.04))}
+
+/* ── Modal Ajustado ── */
+#modal-overlay{
+  display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,.72);
+  align-items:center;justify-content:center;
+}
+#modal-overlay.open{display:flex;}
+#modal-box{
+  position:relative;
+  width:min(900px,94vw);
+  background:#fff;border-radius:12px;overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.6);
+  display:flex;flex-direction:row;
+  color:#333;
+}
+@media(max-width: 768px) {
+  #modal-box{flex-direction:column; max-height: 90vh; overflow-y: auto;}
+}
+#modal-swatch{
+  width: 450px; height: 450px;
+  position:relative;overflow:hidden; flex-shrink:0;
+  background:#eee;
+}
+@media(max-width: 768px) {
+  #modal-swatch{width: 100%; height: 300px;}
+}
+/* A imagem fica por cima da cor de fundo sólida */
+#modal-swatch-img{
+  position:absolute;inset:0;
+  width:100%;height:100%;object-fit:cover;display:block;
+  z-index: 2;
+}
+#modal-swatch-color{
+  position:absolute;inset:0;
+  z-index: 1;
+}
+#modal-content-right{
+  flex:1; padding: 35px 40px; display:flex; flex-direction:column; justify-content:center;
+}
+#modal-info .category-tag{font-size:11px;font-weight:600;color:#b27d54;text-transform:uppercase;margin:0 0 6px;letter-spacing:0.5px;}
+#modal-info .mn{font-size:26px;font-weight:600;margin:0 0 12px;color:#222;}
+#modal-info .description{font-size:13px;line-height:1.6;color:#666;margin-bottom:20px;border-bottom:1px solid #eee;padding-bottom:15px;}
+#modal-specs-title{font-size:11px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;}
+#modal-specs-grid{display:grid;grid-template-columns: 110px 1fr;row-gap:8px;font-size:13px;}
+
+#modal-close{
+  position:absolute;top:14px;right:16px;z-index:10;
+  background:rgba(0,0,0,0.06);border:none;color:#555;
+  width:32px;height:32px;border-radius:50%;font-size:16px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background .15s;
+}
+#modal-close:hover{background:rgba(0,0,0,0.12);}
+</style>
+
+<h2 class="sr-only">Paleta de materiais pintados — lista de IDs com suas cores base RGB</h2>
+<div class="controls">
+  <input type="text" id="search" placeholder="Buscar por nome ou ID..." oninput="render()">
+  <select id="biblioteca" onchange="onBibliotecaChange()">
+    <option value="">Todas as bibliotecas</option>
+  </select>
+  <select id="tipo" onchange="onTipoChange()">
+    <option value="">Todos os tipos</option>
+  </select>
+  <select id="subfamilia" onchange="onSubfamiliaChange()">
+    <option value="">Todas as sub-famílias</option>
+  </select>
+  <select id="espessura" onchange="render()">
+    <option value="">Qualquer espessura</option>
+  </select>
+  <select id="sort" onchange="render()">
+    <option value="name">A–Z nome</option>
+    <option value="id">A–Z ID</option>
+    <option value="hue">Por matiz</option>
+    <option value="bright">Por brilho</option>
+  </select>
+</div>
+<div class="count" id="count"></div>
+<div class="grid" id="grid"></div>
+<div class="copy-toast" id="toast">Copiado!</div>
+
+<!-- Modal Atualizado -->
+<div id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-name">
+  <div id="modal-box">
+    <button id="modal-close" aria-label="Fechar" onclick="closeModal()">✕</button>
+    <div id="modal-swatch">
+      <div id="modal-swatch-color"></div>
+      <img id="modal-swatch-img" alt="">
+    </div>
+    <div id="modal-content-right">
+      <div id="modal-info">
+        <p class="category-tag">Madeiras / Acabamentos</p>
+        <p class="mn" id="modal-name"></p>
+        <p class="description">Estrutura linear, com um leve movimento nos veios. Seus traços e tons o tornam um clássico para os mais variados projetos.</p>
+        
+        <p id="modal-specs-title">Especificações Técnicas</p>
+        <div id="modal-specs-grid">
+          <span class="spec-label">Espessura</span>
+          <span class="spec-val" id="spec-espessuras">-</span>
+          <span class="spec-label">Sub-Família</span>
+          <span class="spec-val" id="spec-subfamilia">-</span>
+          <span class="spec-label">Biblioteca</span>
+          <span class="spec-val" id="spec-biblioteca">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const materials = [
+  {id:"sul_2431_pai_pin_Alec",name:"Alecrim",r:134,g:181,b:181},
+  {id:"sul_2431_pai_pin_acacia Carmel_2",name:"Acacia Carmel",r:149,g:123,b:100},
+  {id:"sul_2431_pai_pin_ametista",name:"Ametista",r:72,g:58,b:56},
+  {id:"sul_2431_pai_pin_Areal",name:"Areal",r:179,g:156,b:116},  
+  {id:"sul_2431_pai_pin_azu_ast",name:"Azul Astral",r:154,g:178,b:188},
+  {id:"sul_2431_pai_pin_azu_imp",name:"Azul Imperial",r:73,g:88,b:119},
+  {id:"sul_2431_pai_pin_azu_mar",name:"Azul Mar",r:30,g:168,b:170},
+  {id:"sul_2431_pai_pin_azu_ser",name:"Azul Sereno",r:182,g:208,b:204},
+  {id:"sul_2431_pai_pin_Azul_Tifani",name:"Azul Tifani",r:0,g:191,b:191},
+  {id:"sul_2431_pai_pin_beige",name:"Beige Arizona",r:169,g:159,b:151},
+  {id:"sul_2431_pai_pin_Luxor",name:"Beige Luxor",r:221,g:200,b:183},
+  {id:"sul_2431_pai_pin_bet",name:"Beton",r:177,g:179,b:178},
+  {id:"sul_2431_pai_pin_bus",name:"Blush",r:165,g:122,b:104},
+  {id:"sul_2431_pai_pin_bra",name:"Branco",r:250,g:250,b:250},  
+  {id:"sul_2431_pai_pin_bra_Cle",name:"Branco Clear",r:255,g:255,b:255},
+  {id:"sul_2431_pai_pin_bro",name:"Bronze",r:113,g:95,b:57},
+  {id:"sul_2431_pai_pin_caca",name:"Cacao",r:163,g:158,b:154},
+  {id:"sul_2431_pai_pin_caf",name:"Cafelatte",r:239,g:220,b:192},
+  {id:"sul_2431_pai_pin_cap",name:"Capuccino",r:91,g:73,b:66},
+  {id:"sul_2431_pai_pin_cer_2",name:"Ceramik",r:151,g:113,b:94},  
+  {id:"sul_2431_pai_pin_cerad",name:"Cerado",r:155,g:125,b:86},  
+  {id:"sul_2431_pai_pin_cin",name:"Cinza",r:185,g:183,b:171},
+  {id:"sul_2431_pai_pin_conne_2",name:"Connect",r:165,g:154,b:144},
+  {id:"sul_2431_pai_pin_cris",name:"Cristalina",r:229,g:215,b:199},
+  {id:"sul_2431_pai_pin_Curupixa",name:"Curupixa",r:184,g:159,b:44},
+  {id:"sul_2431_pai_pin_cromio_2",name:"Cromio",r:200,g:193,b:191},
+  {id:"sul_2431_pai_pin_dou",name:"Dourado",r:172,g:166,b:53},
+  {id:"sul_2431_pai_pin_esc",name:"Escarlate",r:67,g:53,b:51},
+  {id:"sul_2431_pai_pin_esp",name:"Espresso",r:150,g:151,b:145},
+  {id:"sul_2431_pai_pin_Damasco",name:"Damasco",r:220,g:185,b:129},
+  {id:"sul_2431_pai_pin_Falesia_2",name:"Falesia",r:69,g:141,b:122},
+  {id:"sul_2431_pai_pin_fosco",name:"Fosco",r:192,g:192,b:192},
+  {id:"sul_2431_pai_pin_Fresno_2",name:"Fresno Coimbra",r:91,g:68,b:58},
+  {id:"sul_2431_pai_pin_fra",name:"Frapê",r:211,g:203,b:200},
+  {id:"sul_2431_pai_pin_gol",name:"Gold",r:218,g:165,b:32},
+  {id:"sul_2431_pai_pin_gra",name:"Grafite",r:102,g:97,b:91},
+  {id:"sul_2431_pai_pin_grav",name:"Gravetos",r:139,g:130,b:104},
+  {id:"sul_2431_pai_pin_grig",name:"Grigio Efeso",r:194,g:193,b:191},
+  {id:"sul_2431_pai_pin_grig_lon",name:"Grigio Londra",r:136,g:132,b:131},
+  {id:"sul_2431_pai_pin_ipe",name:"Ipê",r:255,g:227,b:0},
+  {id:"sul_2431_pai_pin_inox",name:"Inox Pintado",r:175,g:165,b:160},  
+  {id:"sul_2431_pai_pin_gold",name:"Gold",r:218,g:165,b:32},
+  {id:"sul_2431_pai_pin_Jade_2",name:"Jade",r:125,g:136,b:121},
+  {id:"sul_2431_pai_pin_Jady",name:"Jady",r:142,g:151,b:134},
+  {id:"sul_2431_pai_pin_lic",name:"Licor",r:192,g:146,b:157},
+  {id:"sul_2431_pai_pin_Lino_2",name:"Lino Piombo",r:123,g:117,b:112},
+  {id:"sul_2431_pai_pin_lon_2",name:"Londres",r:116,g:119,b:122},  
+  {id:"sul_2431_pai_pin_off_Lou_Fre_2",name:"Louro Freijo",r:153,g:118,b:88},
+  {id:"sul_2431_pai_pin_off_Lou_pre_2",name:"Louro Preto",r:69,g:58,b:54},
+  {id:"sul_2431_pai_pin_Lord",name:"Lord",r:54,g:63,b:82},
+  {id:"sul_2431_pai_pin_Lou",name:"Louro",r:151,g:102,b:59},
+  {id:"sul_2431_pai_pin_mac_2",name:"Macadamia",r:165,g:136,b:110},
+  {id:"sul_2431_pai_pin_mad",name:"Madeiral",r:142,g:119,b:106},
+  {id:"sul_2431_pai_pin_metSue_2",name:"Metalic Suede",r:158,g:146,b:142},
+  {id:"sul_2431_pai_pin_moc",name:"Mocca",r:153,g:122,b:100},  
+  {id:"sul_2431_pai_pin_mos",name:"Moscada",r:91,g:56,b:19},
+  {id:"sul_2431_pai_pin_nat",name:"Nata",r:235,g:230,b:221},
+  {id:"sul_2431_pai_pin_nazca",name:"Nazca",r:217,g:207,b:192},
+  {id:"sul_2431_pai_pin_Nilo",name:"Nilo",r:97,g:85,b:77},
+  {id:"sul_2431_pai_pin_Niquel",name:"Niquel",r:89,g:89,b:89},
+  {id:"sul_2431_pai_pin_NoceNatu_2",name:"Noce Naturale",r:149,g:123,b:100},
+  {id:"sul_2431_pai_pin_Nog",name:"Nogueira Florida",r:141,g:84,b:50},
+  {id:"sul_2431_pai_pin_Nog_per_2",name:"Nogueira Persa",r:133,g:116,b:98},
+  {id:"sul_2431_pai_pin_nord_2",name:"Nordic",r:218,g:216,b:213},
+  {id:"sul_2431_pai_pin_off_whi",name:"Off White",r:244,g:248,b:220},
+  {id:"sul_2431_pai_pin_pau_2",name:"Pau Ferro",r:101,g:77,b:66},
+  {id:"sul_2431_pai_pin_pin",name:"Pinole",r:189,g:150,b:120},
+  {id:"sul_2431_pai_pin_pim",name:"Pimenta Rosa",r:90,g:45,b:40},  
+  {id:"sul_2431_pai_pin_pram",name:"Prata Metalizado",r:177,g:181,b:196},
+  {id:"sul_2431_pai_pin_pre",name:"Preto",r:0,g:0,b:0},
+  {id:"sul_2431_pai_pin_roz_gol",name:"Rose Gold",r:254,g:127,b:71},
+  {id:"sul_2431_pai_pin_rov",name:"Rovere Braga",r:223,g:207,b:187},
+  {id:"sul_2431_pai_pin_ros",name:"Roze",r:255,g:200,b:200},
+  {id:"sul_2431_pai_pin_Sal_rosa",name:"Sal Rosa",r:254,g:197,b:255},
+  {id:"sul_2431_pai_pin_sal",name:"Salvia",r:108,g:121,b:95},
+  {id:"sul_2431_pai_pin_tab",name:"Tabasco",r:176,g:84,b:48},
+  {id:"sul_2431_pai_pin_tear_2",name:"Tear",r:187,g:169,b:157},
+  {id:"sul_2431_pai_pin_tita_2",name:"Titanio",r:179,g:168,b:145},
+  {id:"sul_2431_pai_pin_tokai_2",name:"Tokai",r:204,g:185,b:164},
+  {id:"sul_2431_pai_pin_Vere_2",name:"Veredas",r:208,g:181,b:151},
+  {id:"sul_2431_pai_pin_ver",name:"Vermelho",r:161,g:0,b:0},
+  {id:"sul_2431_pai_pin_Verm_3",name:"Vermont Dark",r:133,g:106,b:76},
+  {id:"sul_2431_pai_pin_Verm_2_2",name:"Vermont Oak",r:175,g:144,b:116},
+  {id:"sul_2431_pai_pin_vinho",name:"Vinho",r:81,g:19,b:19},  
+  {id:"sul_2431_pai_pin_caramelo",name:"Caramelo",r:158,g:117,b:71}, 
+  {id:"sul_2431_pai_pin_quartzo",name:"Quartzo",r:220,g:221,b:216}, 
+  {id:"sul_2431_pai_pin_cinza_sagrado",name:"Cinza Sagrado",r:111,g:117,b:120}  
+];
+
+const materialsSimonetto=[
+  {id:"simonetto_absoluto", name:"Absoluto", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Absoluto.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_areal", name:"Areal", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Areal.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_beton", name:"Beton", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Beton.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_branco", name:"Branco", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Branco.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_cacao", name:"Cacao", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cacao.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_caramelo", name:"Caramelo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Caramelo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_cromio", name:"Cromio", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cromio.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "48mm"]}, 
+  {id:"simonetto_curupixa", name:"Curupixa", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Curupixa.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_fresno_coinbra", name:"Fresno Coinbra", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Fresno Coinbra.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_londres", name:"Londres", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Londres.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_nazca", name:"Nazca", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Nazca.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_nilo", name:"Nilo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Nilo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_niquel", name:"Niquel", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Niquel.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_pau_ferro", name:"Pau Ferro", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Pau Ferro.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_tear", name:"Tear", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Tear.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_veredas", name:"Veredas", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Veredas.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_alecrim", name:"Alecrim", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Alecrim.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "48mm"]}, 
+  {id:"simonetto_azul_petroleo", name:"Azul Petroleo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Azul Petroleo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "48mm"]}, 
+  {id:"simonetto_bco_essencial", name:"Bco Essencial", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Bco Essencial.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_beige", name:"Beige", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Beige.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_blush", name:"Blush", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Blush.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_cinza_cristal", name:"Cinza Cristal", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cinza Cristal.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_cristalina", name:"Cristalina", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cristalina.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_escarlate", name:"Escarlate", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Escarlate.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_louro_freijo", name:"Louro Freijo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Louro Freijo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_macadamia", name:"Macadamia", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Macadamia.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_metalic_suede", name:"Metalic Suede", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Metalic Suede.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_nog_florida", name:"Nog Florida", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Nogueira Florida.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_nogueira_caiena", name:"Nogueira Caiena", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Nogueira Caiena.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_quartzo", name:"Quartzo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Quartzo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "48mm"]}, 
+  {id:"simonetto_rovere_braga", name:"Rovere Braga", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Rovere Braga.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_sal_rosa", name:"Sal Rosa", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Sal Rosa.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_salvia", name:"Salvia", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Salvia.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_gris", name:"Gris", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Gris.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_gris_2", name:"Gris", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Gris.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm"]},
+  {id:"simonetto_damasco", name:"Damasco", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Damasco.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_frape", name:"Frape", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Frape.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_pinole", name:"Pinole", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Pinole.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_damasco_2", name:"Damasco", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Damasco.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm"]},
+  {id:"simonetto_frape_2", name:"Frape", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Frape.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_pinole_2", name:"Pinole", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Pinole.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_bufalo", name:"Bufalo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Bufalo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "18mm",  "25mm",  "48mm"]}, 
+  {id:"simonetto_ceramik", name:"Ceramik", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Ceramik.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "48mm"]},
+  {id:"simonetto_ceramik_2", name:"Ceramik", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Ceramik.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["18mm"]},
+  {id:"simonetto_bco_essencial_2", name:"Bco Essencial", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Bco Essencial.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_beige_2", name:"Beige", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Beige.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_blush_2", name:"Blush", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Blush.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_cinza_cristal_2", name:"Cinza Cristal", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cinza Cristal.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_cristalina_2", name:"Cristalina", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cristalina.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]}, 
+  {id:"simonetto_escarlate_2", name:"Escarlate", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Escarlate.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_louro_freijo_2", name:"Louro Freijo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Louro Freijo.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_nog_florida_2", name:"Nog Florida", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Nogueira Florida.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]}, 
+  {id:"simonetto_nogueira_caiena_2", name:"Nogueira Caiena", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Nogueira Caiena.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_rovere_braga_2", name:"Rovere Braga", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Rovere Braga.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_salvia_2", name:"Salvia", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Salvia.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_ametista", name:"Ametista", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Ametista.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["18mm"]},
+  {id:"simonetto_cristallo_bco_diamante", name:"Cristallo / Bco Diamante", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cristallo Bco Diamante.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["18mm"]}, 
+  {id:"simonetto_cristallo_cinza_sagrado", name:"Cristallo / Cinza Sagrado", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cristallo Cinza Sagrado.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["18mm"]},
+  {id:"simonetto_cristallo_gianduia", name:"Cristallo / Gianduia", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cristallo Gianduia.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["18mm"]},
+  {id:"simonetto_cristallo_titanio", name:"Cristallo / Titanio", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cristallo Titanio.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["18mm"]},
+  {id:"simonetto_preto_acetinatta", name:"Preto Acetinatta", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Preto Acetinatta.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["18mm"]},
+  {id:"simonetto_macadamia_2", name:"Macadamia", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Macadamia.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["18mm"]},
+  {id:"simonetto_metalic_suede_2", name:"Metalic Suede", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Metalic Suede.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["18mm"]},
+  {id:"simonetto_cerrado", name:"Cerrado", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cerrado.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_moscada", name:"Moscada", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Moscada.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_pimenta", name:"Pimenta", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Pimenta.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_cinza_cristal_matt", name:"Cinza Cristal Matt", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cinza Cristal Matt.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_cinza_cristal_matt_2", name:"Cinza Cristal Matt", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Cinza Cristal Matt.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_beige_matt", name:"Beige Matt", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Beige Matt.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_beige_matt_2", name:"Beige Matt", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Beige Matt.jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm",  "18mm",  "25mm"]},
+  {id:"simonetto_azul_mineral", name:"Azul Mineral", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Blues Matt.Jpg", biblioteca:"Simonetto", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm",  "15mm",  "18mm",  "25mm",  "48mm"]},
+  {id:"simonetto_louro_pardo Cat", name:"Louro Pardo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Louro Pardo Cat.png", biblioteca:"Simonetto", subFamilia:["1F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_freijo_cat", name:"Freijo Cat", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Freijo Cat.png", biblioteca:"Simonetto", subFamilia:["1F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_Pau_Ferro_Cat", name:"Pau Ferro", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Pau Ferro Cat.jpg", biblioteca:"Simonetto", subFamilia:["1F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_carvalho_cat", name:"Carvalho Cat", r:201, g:200, b:195, img:"TEXTURAS SIMONETTO/Carvalho Cat.png", biblioteca:"Simonetto", subFamilia:["1F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_louro_pardo Cat_2", name:"Louro Pardo", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Louro Pardo Cat.png", biblioteca:"Simonetto", subFamilia:["2F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_freijo_cat_2", name:"Freijo Cat", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Freijo Cat.png", biblioteca:"Simonetto", subFamilia:["2F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_Pau_Ferro_Cat_2", name:"Pau Ferro", r:200, g:200, b:195, img:"TEXTURAS SIMONETTO/Pau Ferro Cat.jpg", biblioteca:"Simonetto", subFamilia:["2F"], tipos:["LAM"], espessuras:["18mm"]},
+  {id:"simonetto_carvalho_cat_2", name:"Carvalho Cat", r:201, g:200, b:195, img:"TEXTURAS SIMONETTO/Carvalho Cat.png", biblioteca:"Simonetto", subFamilia:["2F"], tipos:["LAM"], espessuras:["18mm"]}
+];
+const materialsStimmo=[
+  {id:"stimmo_Acacia Carmel", name:"Acacia Carmel", r:133, g:121, b:95, img:"TEXTURAS STIMMO/Acacia Carmel.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Acacia Carmel2", name:"Acacia Carmel", r:133, g:121, b:95, img:"TEXTURAS STIMMO/Acacia Carmel.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Andorra Acácia", name:"Andorra Acácia", r:228, g:195, b:147, img:"TEXTURAS STIMMO/Andorra Acácia.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Andorra Acácia2", name:"Andorra Acácia", r:228, g:195, b:147, img:"TEXTURAS STIMMO/Andorra Acácia.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Atenna", name:"Atenna", r:220, g:220, b:217, img:"TEXTURAS STIMMO/Atenna.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Atenna2", name:"Atenna", r:220, g:220, b:217, img:"TEXTURAS STIMMO/Atenna.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Aveiro Oak ", name:"Aveiro Oak ", r:223, g:207, b:147, img:"TEXTURAS STIMMO/Aveiro Oak .jpg", biblioteca:"Stimmo", subFamilia:["PF"], tipos:["MDF"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Azul Sereno", name:"Azul Sereno", r:153, g:156, b:171, img:"TEXTURAS STIMMO/Azul Sereno.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "18mm", "38mm"]},
+  {id:"stimmo_Bco Supremo", name:"Bco Supremo", r:254, g:253, b:248, img:"TEXTURAS STIMMO/Bco Supremo.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "25mm", "38mm"]},
+  {id:"stimmo_Beige Matt", name:"Beige Matt", r:218, g:217, b:212, img:"TEXTURAS STIMMO/Beige Matt.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Beige Matt2", name:"Beige Matt", r:218, g:217, b:212, img:"TEXTURAS STIMMO/Beige Matt.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Beige", name:"Beige", r:218, g:217, b:212, img:"TEXTURAS STIMMO/Beige.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Beige2", name:"Beige", r:218, g:217, b:212, img:"TEXTURAS STIMMO/Beige.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Branco", name:"Branco", r:245, g:244, b:242, img:"TEXTURAS STIMMO/Branco.Jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "18mm", "25mm", "38mm"]},
+  {id:"stimmo_Canela Chess", name:"Canela Chess", r:160, g:148, b:136, img:"TEXTURAS STIMMO/Canela Chess.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "25mm", "38mm"]},
+  {id:"stimmo_Carvalho Huster", name:"Carvalho Huster", r:208, g:202, b:188, img:"TEXTURAS STIMMO/Carvalho Huster.jpg", biblioteca:"Stimmo", subFamilia:["PF"], tipos:["MDF"], espessuras:["15mm"]},
+  {id:"stimmo_Champagne ow", name:"Champagne ow", r:245, g:244, b:242, img:"TEXTURAS STIMMO/Champagne ow.jpg", biblioteca:"Stimmo", subFamilia:["PF"], tipos:["MDF"], espessuras:["15mm"]},
+  {id:"stimmo_Cinza Cristal Matt", name:"Cinza Cristal Matt", r:203, g:208, b:214, img:"TEXTURAS STIMMO/Cinza Cristal Matt.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Cinza Cristal Matt2", name:"Cinza Cristal Matt", r:203, g:208, b:214, img:"TEXTURAS STIMMO/Cinza Cristal Matt.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Cinza Cristal", name:"Cinza Cristal", r:208, g:209, b:213, img:"TEXTURAS STIMMO/Cinza Cristal.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Cinza Cristal2", name:"Cinza Cristal", r:208, g:209, b:213, img:"TEXTURAS STIMMO/Cinza Cristal.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Cinza Puro", name:"Cinza Puro", r:123, g:121, b:122, img:"TEXTURAS STIMMO/Cinza Puro.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "18mm", "38mm"]},
+  {id:"stimmo_Cinza Puro2", name:"Cinza Puro", r:123, g:121, b:122, img:"TEXTURAS STIMMO/Cinza Puro.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Cinza Urbano", name:"Cinza Urbano", r:141, g:133, b:120, img:"TEXTURAS STIMMO/Cinza Urbano.jpg", biblioteca:"Stimmo", subFamilia:["PF"], tipos:["MDF"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Concreto Decor", name:"Concreto Decor", r:179, g:179, b:174, img:"TEXTURAS STIMMO/Concreto Decor.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Concreto Decor2", name:"Concreto Decor", r:179, g:179, b:174, img:"TEXTURAS STIMMO/Concreto Decor.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Connect", name:"Connect", r:183, g:165, b:152, img:"TEXTURAS STIMMO/Connect.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "18mm", "25mm", "38mm"]},
+  {id:"stimmo_Ebano Chess", name:"Ebano Chess", r:41, g:41, b:41, img:"TEXTURAS STIMMO/Ebano Chess.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "25mm", "38mm"]},
+  {id:"stimmo_Falesia", name:"Falesia", r:181, g:164, b:156, img:"TEXTURAS STIMMO/Falesia.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Falesia2", name:"Falesia", r:181, g:164, b:156, img:"TEXTURAS STIMMO/Falesia.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Grafito Chess", name:"Grafito Chess", r:84, g:82, b:83, img:"TEXTURAS STIMMO/Grafito Chess.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "25mm", "38mm"]},
+  {id:"stimmo_Grey Sky", name:"Grey Sky", r:157, g:162, b:166, img:"TEXTURAS STIMMO/Grey Sky.jpg", biblioteca:"Stimmo", subFamilia:["PF"], tipos:["MDF"], espessuras:["15mm"]},
+  {id:"stimmo_Jade", name:"Jade", r:127, g:145, b:123, img:"TEXTURAS STIMMO/Jade.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Jade2", name:"Jade", r:127, g:145, b:123, img:"TEXTURAS STIMMO/Jade.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Lamina Mel", name:"Lamina Mel", r:164, g:140, b:113, img:"TEXTURAS STIMMO/Lamina Mel.jpg", biblioteca:"Stimmo", subFamilia:["PF"], tipos:["MDF"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Linho", name:"Linho", r:200, g:192, b:184, img:"TEXTURAS STIMMO/Linho.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "18mm", "25mm", "38mm"]},
+  {id:"stimmo_Lino Piombo", name:"Lino Piombo", r:143, g:134, b:122, img:"TEXTURAS STIMMO/Lino Piombo.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Lino Piombo2", name:"Lino Piombo", r:143, g:134, b:122, img:"TEXTURAS STIMMO/Lino Piombo.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Lord", name:"Lord", r:79, g:89, b:110, img:"TEXTURAS STIMMO/Lord.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "38mm"]},
+  {id:"stimmo_Louro Preto", name:"Louro Preto", r:151, g:102, b:59, img:"TEXTURAS STIMMO/Louro Preto.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "18mm", "38mm"]},
+  {id:"stimmo_Louro Preto2", name:"Louro Preto", r:151, g:102, b:59, img:"TEXTURAS STIMMO/Louro Preto.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Louro", name:"Louro", r:69, g:37, b:18, img:"TEXTURAS STIMMO/Louro.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "18mm", "38mm"]},
+  {id:"stimmo_Louro2", name:"Louro", r:69, g:37, b:18, img:"TEXTURAS STIMMO/Louro.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["25mm"]},
+  {id:"stimmo_Madeiral", name:"Madeiral", r:162, g:118, b:82, img:"TEXTURAS STIMMO/Madeiral.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["15mm"]},
+  {id:"stimmo_Manitu", name:"Manitu", r:128, g:90, b:61, img:"TEXTURAS STIMMO/Manitu.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Manitu2", name:"Manitu", r:128, g:90, b:61, img:"TEXTURAS STIMMO/Manitu.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Mont Blanc", name:"Mont Blanc", r:250, g:249, b:247, img:"TEXTURAS STIMMO/Mont Blanc.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Mont Blanc2", name:"Mont Blanc", r:250, g:249, b:247, img:"TEXTURAS STIMMO/Mont Blanc.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "18mm", "25mm"]},
+  {id:"stimmo_Noce Naturale", name:"Noce Naturale", r:157, g:141, b:96, img:"TEXTURAS STIMMO/Noce Naturale.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "18mm", "38mm"]},
+  {id:"stimmo_Noce Naturale2", name:"Noce Naturale", r:157, g:141, b:96, img:"TEXTURAS STIMMO/Noce Naturale.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Nogueira Persa", name:"Nogueira Persa", r:121, g:108, b:91, img:"TEXTURAS STIMMO/Nogueira Persa.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "15mm", "25mm", "38mm"]},
+  {id:"stimmo_Tabasco", name:"Tabasco", r:196, g:103, b:52, img:"TEXTURAS STIMMO/Tabasco.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Tabasco2", name:"Tabasco", r:196, g:103, b:52, img:"TEXTURAS STIMMO/Tabasco.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Vermont Dark", name:"Vermont Dark", r:109, g:89, b:51, img:"TEXTURAS STIMMO/Vermont Dark.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Vermont Dark2", name:"Vermont Dark", r:109, g:89, b:51, img:"TEXTURAS STIMMO/Vermont Dark.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]},
+  {id:"stimmo_Vermont Oak", name:"Vermont Oak", r:183, g:153, b:118, img:"TEXTURAS STIMMO/Vermont Oak.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDF"], espessuras:["6mm", "38mm"]},
+  {id:"stimmo_Vermont Oak2", name:"Vermont Oak", r:183, g:153, b:118, img:"TEXTURAS STIMMO/Vermont Oak.jpg", biblioteca:"Stimmo", subFamilia:["BP"], tipos:["MDP"], espessuras:["15mm", "25mm"]}
+];
+materials.push(...materialsSimonetto);
+materials.push(...materialsStimmo);
+
+const ESPESSURAS_SULFER=["3mm","4mm","5mm","6mm","8mm","18mm","22mm"];
+materials.forEach(m=>{
+  if(!m.biblioteca) m.biblioteca='Sulfer';
+  if(!m.subFamilia) m.subFamilia=['Perfil','Vidro'];
+  if(!m.tipos) m.tipos=[];
+  if(!m.espessuras) m.espessuras=[...ESPESSURAS_SULFER];
+});
+
+function toHex(r,g,b){return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('')}
+function brightness(r,g,b){return 0.299*r+0.587*g+0.114*b}
+function hue(r,g,b){const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;if(!d)return 0;let h=max===r?(g-b)/d%6:max===g?(b-r)/d+2:(r-g)/d+4;return h*60}
+
+const PASTA_POR_BIBLIOTECA = {
+  'Simonetto': 'TEXTURAS SIMONETTO',
+  'Stimmo': 'TEXTURAS STIMMO'
+};
+
+function defaultImgSrc(m){
+  if(m.img) return m.img;
+  const pasta = PASTA_POR_BIBLIOTECA[m.biblioteca];
+  return pasta ? pasta + '/' + encodeURIComponent(m.id) + '.jpg' : null;
+}
+
+function fillSelect(id,values,placeholder){
+  const sel=document.getElementById(id);
+  const atual=sel.value;
+  sel.innerHTML=`<option value="">${placeholder}</option>`+
+    values.map(v=>`<option value="${v}">${v}</option>`).join('');
+  sel.value=values.includes(atual)?atual:'';
+}
+
+function refreshFilters(){
+  const bib=document.getElementById('biblioteca').value;
+  const porBib=materials.filter(m=>!bib||m.biblioteca===bib);
+  fillSelect('biblioteca',[...new Set(materials.map(m=>m.biblioteca))].sort((a,b)=>a.localeCompare(b)),'Todas as bibliotecas');
+
+  const tipo=document.getElementById('tipo').value;
+  fillSelect('tipo',[...new Set(porBib.flatMap(m=>m.tipos))].sort((a,b)=>a.localeCompare(b)),'Todos os tipos');
+  const porTipo=porBib.filter(m=>!tipo||m.tipos.includes(tipo));
+
+  const subf=document.getElementById('subfamilia').value;
+  fillSelect('subfamilia',[...new Set(porTipo.flatMap(m=>m.subFamilia))].sort((a,b)=>a.localeCompare(b)),'Todas as sub-famílias');
+  const porSubf=porTipo.filter(m=>!subf||m.subFamilia.includes(subf));
+
+  fillSelect('espessura',[...new Set(porSubf.flatMap(m=>m.espessuras))].sort((a,b)=>parseInt(a)-parseInt(b)),'Qualquer espessura');
+}
+
+function onBibliotecaChange(){
+  document.getElementById('tipo').value='';
+  document.getElementById('subfamilia').value='';
+  document.getElementById('espessura').value='';
+  refreshFilters();
+  render();
+}
+function onTipoChange(){
+  document.getElementById('subfamilia').value='';
+  document.getElementById('espessura').value='';
+  refreshFilters();
+  render();
+}
+function onSubfamiliaChange(){
+  document.getElementById('espessura').value='';
+  refreshFilters();
+  render();
+}
+
+function render(){
+  refreshFilters();
+  const q=document.getElementById('search').value.toLowerCase();
+  const bib=document.getElementById('biblioteca').value;
+  const tipo=document.getElementById('tipo').value;
+  const subf=document.getElementById('subfamilia').value;
+  const esp=document.getElementById('espessura').value;
+  const s=document.getElementById('sort').value;
+  let list=materials.filter(m=>
+    (m.name.toLowerCase().includes(q)||m.id.toLowerCase().includes(q))
+    && (!bib||m.biblioteca===bib)
+    && (!tipo||m.tipos.includes(tipo))
+    && (!subf||m.subFamilia.includes(subf))
+    && (!esp||m.espessuras.includes(esp))
+  );
+  list=[...list].sort((a,b)=>{
+    if(s==='name')return a.name.localeCompare(b.name);
+    if(s==='id')return a.id.localeCompare(b.id);
+    if(s==='hue')return hue(a.r,a.g,a.b)-hue(b.r,b.g,b.b);
+    if(s==='bright')return brightness(b.r,b.g,b.b)-brightness(a.r,a.g,a.b);
+    return 0;
+  });
+  document.getElementById('count').textContent=list.length+' materiais';
+  const g=document.getElementById('grid');
+  g.innerHTML=list.map(m=>{
+    const hex=toHex(m.r,m.g,m.b);
+    const encId=encodeURIComponent(m.id);
+    const pasta=PASTA_POR_BIBLIOTECA[m.biblioteca];
+    const srcInicial=defaultImgSrc(m);
+    const temImagem=!!srcInicial;
+    const ehCaminhoConhecido=!!m.img;
+    const onImgError=temImagem?(ehCaminhoConhecido?`
+      this.style.display='none';
+    `:`
+      if(!this.dataset.fallback1){this.dataset.fallback1='1';this.src='${pasta}/${encId}.png';}
+      else if(!this.dataset.fallback2){this.dataset.fallback2='1';this.src='${pasta}/${encId}.jpeg';}
+      else{this.style.display='none';}
+    `).replace(/\s+/g,' ').trim():'';
+    
+    const mJson=encodeURIComponent(JSON.stringify({
+      id:m.id, name:m.name, hex, img:srcInicial||'', 
+      known:ehCaminhoConhecido?1:0, pasta:pasta||'', encId,
+      subFamilia: m.subFamilia.join(', '),
+      espessuras: m.espessuras.join(' | '),
+      biblioteca: m.biblioteca
+    }));
+
+    return `<div class="card" onclick="copy('${hex}','${m.id}')">
+      <div class="swatch" style="position:relative;background:${hex};cursor:zoom-in;" onclick="event.stopPropagation();openModal('${mJson}')">
+        <img src="${temImagem?srcInicial:''}" alt="${m.name}" data-custom="${ehCaminhoConhecido?'1':''}"
+             style="width:100%;height:100%;object-fit:cover;display:${temImagem?'block':'none'};"
+             onerror="${onImgError}">
+      </div>
+      <div class="info">
+        <p class="name">${m.name}</p>
+        <p class="hex">Sub-Família: ${m.subFamilia.join(', ')}</p>
+        <p class="hex">Espessuras: ${m.espessuras.join(', ')}</p>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+let toastTimer;
+function copy(hex,id){
+  const text=`${id}: ${hex.toUpperCase()}`;
+  navigator.clipboard.writeText(text).catch(()=>{});
+  const t=document.getElementById('toast');
+  t.textContent='Copiado: '+hex.toUpperCase();
+  t.style.opacity='1';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.style.opacity='0',1800);
+}
+
+refreshFilters();
+render();
+
+// ── Modal ──
+function openModal(encoded){
+  const m=JSON.parse(decodeURIComponent(encoded));
+  const overlay=document.getElementById('modal-overlay');
+  const colorDiv=document.getElementById('modal-swatch-color');
+  const img=document.getElementById('modal-swatch-img');
+
+  colorDiv.style.background=m.hex;
+
+  img.style.display='block';
+  img.removeAttribute('data-fallback1');
+  img.removeAttribute('data-fallback2');
+  if(m.img){
+    img.src=m.img;
+    img.alt=m.name;
+    img.onerror=function(){
+      if(m.known){
+        img.style.display='none';
+      } else {
+        if(!img.dataset.fallback1){img.dataset.fallback1='1';img.src=m.pasta+'/'+m.encId+'.png';}
+        else if(!img.dataset.fallback2){img.dataset.fallback2='1';img.src=m.pasta+'/'+m.encId+'.jpeg';}
+        else{img.style.display='none';}
+      }
+    };
+  } else {
+    img.style.display='none';
+  }
+
+  document.getElementById('modal-name').textContent=m.name;
+  document.getElementById('spec-espessuras').textContent=m.espessuras || '-';
+  document.getElementById('spec-subfamilia').textContent=m.subFamilia || '-';
+  document.getElementById('spec-biblioteca').textContent=m.biblioteca || '-';
+
+  overlay.classList.add('open');
+  document.addEventListener('keydown',_escClose);
+}
+
+function closeModal(){
+  document.getElementById('modal-overlay').classList.remove('open');
+  document.removeEventListener('keydown',_escClose);
+}
+
+function _escClose(e){if(e.key==='Escape')closeModal();}
+
+document.getElementById('modal-overlay').addEventListener('click',function(e){
+  if(e.target===this)closeModal();
+});
+</script>
